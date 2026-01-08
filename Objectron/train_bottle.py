@@ -16,8 +16,8 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 CATEGORY = "bottle"
 INDEX_FILE = "index/bottle_annotations_train"
 CACHE_DIR = "dataset_cache"
-BATCH_SIZE = 8
-NUM_EPOCHS = 20
+BATCH_SIZE = 256
+NUM_EPOCHS = 60
 LEARNING_RATE = 1e-4
 NUM_KEYPOINTS = 9
 INPUT_SIZE = 224
@@ -213,7 +213,7 @@ def train():
     if os.path.exists(index_path):
         with open(index_path, 'r') as f:
             lines = [l.strip() for l in f.readlines()]
-            lines = lines[:1500]
+            # lines = lines[:1500]
             split_idx = int(0.9 * len(lines))
             train_samples = lines[:split_idx]
             val_samples = lines[split_idx:]
@@ -226,8 +226,8 @@ def train():
         print("Dataset is empty. Check index file path.")
         return
 
-    dataloader = DataLoader(dataset_train, batch_size=BATCH_SIZE, shuffle=True)
-    val_loader = DataLoader(dataset_val, batch_size=BATCH_SIZE, shuffle=False)
+    dataloader = DataLoader(dataset_train, batch_size=BATCH_SIZE, shuffle=True, num_workers=6, pin_memory=True)
+    val_loader = DataLoader(dataset_val, batch_size=BATCH_SIZE, shuffle=False, num_workers=6, pin_memory=True)
     
     # Model
     print("Creating model (MobileNetV2)...")
@@ -259,6 +259,8 @@ def train():
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
     scheduler = CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS, eta_min=LEARNING_RATE * 0.1)
     
+    scaler = torch.cuda.amp.GradScaler(enabled=(device.type == 'cuda'))
+
     # Training Loop
     print("Starting training...")
     model.train()
@@ -273,20 +275,23 @@ def train():
             
             optimizer.zero_grad()
             
-            outputs = model(inputs)
-            valid_mask = (targets.abs().sum(dim=1) > 0)
-            if valid_mask.sum() == 0:
-                continue
-            outputs_v = outputs[valid_mask]
-            targets_v = targets[valid_mask]
-            outv = outputs_v.view(outputs_v.size(0), NUM_KEYPOINTS, 3)
-            outv[:, :, 0:2] = torch.sigmoid(outv[:, :, 0:2])
-            predv = outv.view(outputs_v.size(0), -1)
-            loss = weighted_mse(predv, targets_v)
+            with torch.cuda.amp.autocast(enabled=(device.type == 'cuda')):
+                outputs = model(inputs)
+                valid_mask = (targets.abs().sum(dim=1) > 0)
+                if valid_mask.sum() == 0:
+                    continue
+                outputs_v = outputs[valid_mask]
+                targets_v = targets[valid_mask]
+                outv = outputs_v.view(outputs_v.size(0), NUM_KEYPOINTS, 3)
+                outv[:, :, 0:2] = torch.sigmoid(outv[:, :, 0:2])
+                predv = outv.view(outputs_v.size(0), -1)
+                loss = weighted_mse(predv, targets_v)
             
-            loss.backward()
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
             
             running_loss += loss.item()
             
