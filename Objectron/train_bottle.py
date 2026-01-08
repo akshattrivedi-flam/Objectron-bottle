@@ -151,6 +151,34 @@ class SampleListBottleDataset(Dataset):
         annotation_url = f"https://storage.googleapis.com/objectron/annotations/{category}/{batch}/{item}.pbdata"
         local_video_path = os.path.join(CACHE_DIR, f"{category}_{batch}_{item}.MOV")
         local_ann_path = os.path.join(CACHE_DIR, f"{category}_{batch}_{item}.pbdata")
+        
+        # Check for pre-processed frame first
+        frame_path = os.path.join("dataset_frames", f"{category}_{batch}_{item}", f"frame_{frame_id:06d}.jpg")
+        if os.path.exists(frame_path):
+            frame = cv2.imread(frame_path)
+            if frame is not None:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame_pil = Image.fromarray(frame)
+                
+                # Get Keypoints (first object) logic...
+                obj_ann = frame_annotation.annotations[0]
+                keypoints = []
+                for kp in obj_ann.keypoints:
+                    keypoints.extend([kp.point_2d.x, kp.point_2d.y, kp.point_2d.depth])
+                
+                expected_len = NUM_KEYPOINTS * 3
+                if len(keypoints) < expected_len:
+                    keypoints.extend([0.0] * (expected_len - len(keypoints)))
+                elif len(keypoints) > expected_len:
+                    keypoints = keypoints[:expected_len]
+                keypoints = torch.tensor(keypoints, dtype=torch.float32)
+                
+                if self.transform:
+                    image_tensor = self.transform(frame_pil)
+                else:
+                    image_tensor = transforms.ToTensor()(frame_pil)
+                return image_tensor, keypoints
+
         if not os.path.exists(local_video_path):
             try:
                 urllib.request.urlretrieve(video_url, local_video_path)
