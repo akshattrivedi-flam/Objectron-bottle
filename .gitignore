@@ -1,8 +1,12 @@
 
 # Objectron generated data
+Objectron/data/
+Objectron/manifests/
 Objectron/dataset_cache/
 Objectron/dataset_frames/
 Objectron/inference_results/
+Objectron/checkpoints/
+Objectron/results/
 *.pth
 *.avi
 *.mp4
