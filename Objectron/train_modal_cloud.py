@@ -117,10 +117,13 @@ def setup_environment():
     os.makedirs(cfg.results_dir, exist_ok=True)
     os.makedirs(cfg.checkpoint_dir, exist_ok=True)
     
-    # Clone repository if not exists
-    if not os.path.exists('Objectron-bottle'):
+    # Clone repository if not exists (Skip if in Modal where we add local dir)
+    if not os.path.exists('Objectron-bottle') and not os.environ.get("MODAL_IMAGE_BUILD"):
         print("Cloning repository...")
-        subprocess.run(['git', 'clone', 'https://github.com/akshattrivedi-flam/Objectron-bottle.git', 'Objectron-bottle'], check=True)
+        try:
+            subprocess.run(['git', 'clone', 'https://github.com/akshattrivedi-flam/Objectron-bottle.git', 'Objectron-bottle'], check=True)
+        except Exception as e:
+            print(f"Skipping clone due to error (might be in Modal environment): {e}")
     
     print("Environment setup complete!")
 
